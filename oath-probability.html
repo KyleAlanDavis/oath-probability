@@ -1,0 +1,514 @@
+<html>
+  <head>
+    <title>Oath Probability</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        padding: 0.5rem;
+      }
+      .label {
+        display: inline-block;
+        width: 12rem;
+      }
+      table {
+        border-collapse: collapse;
+        max-width: 40rem;
+        margin: 2rem 0;
+        width: 100%;
+      }
+      th {
+        text-align: left;
+      }
+      th,
+      td {
+        padding: 0.25rem;
+      }
+      tbody tr:nth-child(odd) {
+        background-color: #eee;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1><a href="https://ledergames.com/products/oath-chronicles-of-empire-exile">Oath</a> Probability</h1>
+    <form id="dice-form">
+      <label>
+        <span class="label">Defense Dice:</span>
+        <input type="number" id="defense-dice">
+      </label>
+      <br>
+      <label>
+        <span class="label">Defense Warbands/Bandits:</span>
+        <input type="number" id="defense-warbands">
+      </label>
+      <br>
+      <label>
+        <span class="label">Attack Dice:</span>
+        <input type="number" id="attack-dice">
+      </label>
+      <br>
+      <label>
+        <span class="label">Attack Warbands:</span>
+        <input type="number" id="attack-warbands">
+        (Only specify warbands willing to be sacrified for the win)
+      </label>
+      <br>
+      <button button="button">Calculate</button>
+    </form>
+
+    <table id="versus-values"></table>
+
+    <table id="defense-values"></table>
+
+    <table id="attack-values"></table>
+
+    <script type="text/javascript">
+      document.getElementById('dice-form').onsubmit = (event) => {
+        event.preventDefault();
+
+        let defenseDiceCount = parseInt(document.getElementById('defense-dice').value);
+        if (isNaN(defenseDiceCount)) {
+          defenseDiceCount = 0;
+        }
+        let defenseWarbandCount = parseInt(document.getElementById('defense-warbands').value);
+        if (isNaN(defenseWarbandCount)) {
+          defenseWarbandCount = 0;
+        }
+        defenseValueArray = getDefenseValues(defenseDiceCount, defenseWarbandCount);
+
+        let attackDiceCount = parseInt(document.getElementById('attack-dice').value);
+        if (isNaN(attackDiceCount)) {
+          attackDiceCount = 0;
+        }
+        let attackWarbandCount = parseInt(document.getElementById('attack-warbands').value);
+        if (isNaN(attackWarbandCount)) {
+          attackWarbandCount = 0;
+        }
+        attackValueArray = getAttackValues(attackDiceCount);
+
+        versusValueArray = getVersusValues(defenseValueArray, attackValueArray, attackWarbandCount);
+      };
+
+      function getDefenseValues(defenseDiceCount, defenseWarbandCount) {
+        let resultsMap = new Map();
+        // set key is shield_double
+        resultsMap.set('0_0', {
+          shield: 0,
+          double: 0,
+          count: 1
+        });
+
+        let possiblityCount = 1;
+
+        for (diceRoll = 0; diceRoll < defenseDiceCount; diceRoll++) {
+          resultsMap = rollOneDefenseDie(resultsMap);
+          possiblityCount *= 6;
+        }
+
+        let valueMap = new Map();
+        resultsMap.forEach(result => {
+          const value = calculateDefenseValue(result.shield, result.double, defenseWarbandCount);
+          if (valueMap.has(value)) {
+            valueMap.get(value).count += result.count;
+          } else {
+            valueMap.set(value, {
+              value: value,
+              count: result.count
+            });
+          }
+        });
+
+        const valueArray = Array.from(valueMap.values()).sort((a, b) => a.value - b.value);
+
+        let cumulativeCount = 0;
+        let reverseCumulativeProbability = 1;
+        valueArray.forEach(value => {
+          value.probability = value.count / possiblityCount;
+          cumulativeCount += value.count;
+          value.cumulativeProbability = cumulativeCount / possiblityCount;
+          value.reverseCumulativeProbability = reverseCumulativeProbability;
+          reverseCumulativeProbability -= value.probability;
+        })
+
+        postDefenseValues(valueArray);
+
+        return valueArray;
+      }
+
+      function rollOneDefenseDie(previousResultMap) {
+        const newResultMap = new Map();
+        
+        previousResultMap.forEach(result => {
+          // two empty faces
+          addDefenseDieResult(newResultMap, result.shield, result.double, result.count * 2);
+          // two single shield faces
+          addDefenseDieResult(newResultMap, result.shield + 1, result.double, result.count * 2);
+          // one two shield face
+          addDefenseDieResult(newResultMap, result.shield + 2, result.double, result.count);
+          // one x2 shield face
+          addDefenseDieResult(newResultMap, result.shield, result.double + 1, result.count);
+        });
+
+        return newResultMap;
+      }
+
+      function addDefenseDieResult(resultsMap, shield, double, count) {
+        const key = shield.toString() + '_' + double.toString();
+        if (resultsMap.has(key)) {
+          resultsMap.get(key).count += count;
+        } else {
+          resultsMap.set(key, {
+            shield: shield,
+            double: double,
+            count: count
+          });
+        }
+      }
+
+      function calculateDefenseValue(shield, double, warbands) {
+        let value = shield;
+
+        if (value !== 0) {
+          for (doubleIteration = 0; doubleIteration < double; doubleIteration++) {
+            value *= 2;
+          }
+        }
+
+        value += warbands;
+
+        return value;
+      }
+
+      function postDefenseValues(valueArray) {
+        const defenseValuesTable = document.getElementById('defense-values');
+        defenseValuesTable.innerHTML = '';
+
+        const tableHeader = document.createElement('thead');
+
+        const headerRow = document.createElement('tr');
+        const headerCell = document.createElement('th');
+        headerCell.colSpan = 4;
+        headerCell.appendChild(document.createTextNode('Defense'));
+        headerRow.appendChild(headerCell);
+        tableHeader.appendChild(headerRow);
+
+        const headerNoteRow = document.createElement('tr');
+        const headerNoteCell = document.createElement('td');
+        headerNoteCell.colSpan = 4;
+        headerNoteCell.appendChild(document.createTextNode('Warbands/Bandits Included'));
+        headerNoteRow.appendChild(headerNoteCell);
+        tableHeader.appendChild(headerNoteRow);
+
+        const subheaderRow = document.createElement('tr');
+        const valueHeaderCell = document.createElement('th');
+        valueHeaderCell.appendChild(document.createTextNode('Value'));
+        subheaderRow.appendChild(valueHeaderCell);
+        const probabilityHeaderCell = document.createElement('th');
+        probabilityHeaderCell.appendChild(document.createTextNode('Probability'));
+        subheaderRow.appendChild(probabilityHeaderCell);
+        const cumulativeProbabilityHeaderCell = document.createElement('th');
+        cumulativeProbabilityHeaderCell.appendChild(document.createTextNode('Cumulative'));
+        subheaderRow.appendChild(cumulativeProbabilityHeaderCell);
+        const reverseCumulativeProbabilityHeaderCell = document.createElement('th');
+        reverseCumulativeProbabilityHeaderCell.appendChild(document.createTextNode('Reverse'));
+        subheaderRow.appendChild(reverseCumulativeProbabilityHeaderCell);
+        tableHeader.appendChild(subheaderRow);
+
+        defenseValuesTable.appendChild(tableHeader);
+
+        const tableBody = document.createElement('tbody');
+
+        valueArray.forEach(value => {
+          const valueRow = document.createElement('tr');
+          const valueCell = document.createElement('td');
+          valueCell.appendChild(document.createTextNode(value.value.toString()));
+          valueRow.appendChild(valueCell);
+          const probabilityCell = document.createElement('td');
+          probabilityCell.appendChild(document.createTextNode((value.probability * 100).toFixed(2) +  '%'));
+          valueRow.appendChild(probabilityCell);
+          const cumulativeProbabilityCell = document.createElement('td');
+          cumulativeProbabilityCell.appendChild(document.createTextNode((value.cumulativeProbability * 100).toFixed(2) +  '%'));
+          valueRow.appendChild(cumulativeProbabilityCell);
+          const reverseCumulativeProbabilityCell = document.createElement('td');
+          reverseCumulativeProbabilityCell.appendChild(document.createTextNode((value.reverseCumulativeProbability * 100).toFixed(2) +  '%'));
+          valueRow.appendChild(reverseCumulativeProbabilityCell);
+          tableBody.appendChild(valueRow);
+        });
+
+        defenseValuesTable.appendChild(tableBody);
+      }
+    
+      function getAttackValues(attackDiceCount) {
+        let resultsMap = new Map();
+        // set key is sword_skull
+        resultsMap.set('0_0', {
+          sword: 0,
+          skull: 0,
+          count: 1
+        });
+
+        let possiblityCount = 1;
+
+        for (diceRoll = 0; diceRoll < attackDiceCount; diceRoll++) {
+          resultsMap = rollOneAttackDie(resultsMap);
+          possiblityCount *= 6;
+        }
+
+        const valueArray = Array.from(resultsMap.values()).sort((a, b) => {
+          const swordSort = a.sword - b.sword;
+          if (swordSort === 0) {
+            if (a.skull < b.skull) {
+              return -0.1;
+            } else if (a.skull > b.skull) {
+              return 0.1;
+            } else {
+              return 0;
+            }
+          }
+          return swordSort;
+        });
+
+        let cumulativeCount = 0;
+        let reverseCumulativeProbability = 1;
+        valueArray.forEach(value => {
+          value.probability = value.count / possiblityCount;
+          cumulativeCount += value.count;
+          value.cumulativeProbability = cumulativeCount / possiblityCount;
+          value.reverseCumulativeProbability = reverseCumulativeProbability;
+          reverseCumulativeProbability -= value.probability;
+        });
+
+        postAttackValues(valueArray);
+
+        return valueArray;
+      }
+
+      function rollOneAttackDie(previousResultMap) {
+        const newResultMap = new Map();
+        
+        previousResultMap.forEach(result => {
+          // three half sword faces
+          addAttackDieResult(newResultMap, result.sword + 0.5, result.skull, result.count * 3);
+          // two single sword faces
+          addAttackDieResult(newResultMap, result.sword + 1, result.skull, result.count * 2);
+          // one two sword and skull face
+          addAttackDieResult(newResultMap, result.sword + 2, result.skull + 1, result.count);
+        });
+
+        return newResultMap;
+      }
+
+      function addAttackDieResult(resultsMap, sword, skull, count) {
+        const key = sword.toString() + '_' + skull.toString();
+        if (resultsMap.has(key)) {
+          resultsMap.get(key).count += count;
+        } else {
+          resultsMap.set(key, {
+            sword: sword,
+            skull: skull,
+            count: count
+          });
+        }
+      }
+    
+      function postAttackValues(valueArray) {
+        const attackValuesTable = document.getElementById('attack-values');
+        attackValuesTable.innerHTML = '';
+
+        const tableHeader = document.createElement('thead');
+
+        const headerRow = document.createElement('tr');
+        const headerCell = document.createElement('th');
+        headerCell.colSpan = 5;
+        headerCell.appendChild(document.createTextNode('Attack'));
+        headerRow.appendChild(headerCell);
+        tableHeader.appendChild(headerRow);
+
+        const headerNoteRow = document.createElement('tr');
+        const headerNoteCell = document.createElement('td');
+        headerNoteCell.colSpan = 5;
+        headerNoteCell.appendChild(document.createTextNode('Warbands Not Included'));
+        headerNoteRow.appendChild(headerNoteCell);
+        tableHeader.appendChild(headerNoteRow);
+
+        const subheaderRow = document.createElement('tr');
+        const swordHeaderCell = document.createElement('th');
+        swordHeaderCell.appendChild(document.createTextNode('Swords'));
+        subheaderRow.appendChild(swordHeaderCell);
+        const skullHeaderCell = document.createElement('th');
+        skullHeaderCell.appendChild(document.createTextNode('Skulls'));
+        subheaderRow.appendChild(skullHeaderCell);
+        const probabilityHeaderCell = document.createElement('th');
+        probabilityHeaderCell.appendChild(document.createTextNode('Probability'));
+        subheaderRow.appendChild(probabilityHeaderCell);
+        const cumulativeProbabilityHeaderCell = document.createElement('th');
+        cumulativeProbabilityHeaderCell.appendChild(document.createTextNode('Cumulative'));
+        subheaderRow.appendChild(cumulativeProbabilityHeaderCell);
+        const reverseCumulativeProbabilityHeaderCell = document.createElement('th');
+        reverseCumulativeProbabilityHeaderCell.appendChild(document.createTextNode('Reverse'));
+        subheaderRow.appendChild(reverseCumulativeProbabilityHeaderCell);
+        tableHeader.appendChild(subheaderRow);
+
+        attackValuesTable.appendChild(tableHeader);
+
+        const tableBody = document.createElement('tbody');
+
+        valueArray.forEach(value => {
+          const valueRow = document.createElement('tr');
+          const swordCell = document.createElement('td');
+          swordCell.appendChild(document.createTextNode(value.sword.toString()));
+          valueRow.appendChild(swordCell);
+          const skullCell = document.createElement('td');
+          skullCell.appendChild(document.createTextNode(value.skull.toString()));
+          valueRow.appendChild(skullCell);
+          const probabilityCell = document.createElement('td');
+          probabilityCell.appendChild(document.createTextNode((value.probability * 100).toFixed(2) +  '%'));
+          valueRow.appendChild(probabilityCell);
+          const cumulativeProbabilityCell = document.createElement('td');
+          cumulativeProbabilityCell.appendChild(document.createTextNode((value.cumulativeProbability * 100).toFixed(2) +  '%'));
+          valueRow.appendChild(cumulativeProbabilityCell);
+          const reverseCumulativeProbabilityCell = document.createElement('td');
+          reverseCumulativeProbabilityCell.appendChild(document.createTextNode((value.reverseCumulativeProbability * 100).toFixed(2) +  '%'));
+          valueRow.appendChild(reverseCumulativeProbabilityCell);
+          tableBody.appendChild(valueRow);
+        });
+
+        attackValuesTable.appendChild(tableBody);
+      }
+    
+      function getVersusValues(defenseValues, attackValues, attackWarbandCount) {
+        const versusResultsMap = new Map();
+
+        defenseValues.forEach(defenseValue => {
+          attackValues.forEach(attackValue => {
+            const attackSwords = Math.floor(attackValue.sword);
+            const availableExtraTroops = attackWarbandCount - attackValue.skull;
+            const probability = attackValue.probability * defenseValue.probability;
+
+            let winner = 'Defense';
+            let attackLosses = attackValue.skull;
+            if (attackSwords > defenseValue.value) {
+              // attack wins without sacrificing extra troops
+              winner = 'Attack';
+            } else if (attackSwords + availableExtraTroops > defenseValue.value) {
+              // attack wins, but must sacrifice extra troops
+              const neededExtraTroops = defenseValue.value - attackSwords + 1;
+              attackLosses += neededExtraTroops;
+              winner = 'Attack';
+            }
+
+            const key = winner + '_' + attackLosses.toString();
+
+            if (versusResultsMap.has(key)) {
+              versusResultsMap.get(key).probability += probability;
+            } else {
+              versusResultsMap.set(key, {
+                winner: winner,
+                attackLosses: attackLosses,
+                probability: probability
+              });
+            }
+          });
+        });
+
+        const versusValueArray = Array.from(versusResultsMap.values()).sort((a, b) => {
+          if (a.winner === b.winner) {
+            if (a.attackLosses < b.attackLosses) {
+              return 0.1;
+            } else if (a.attackLosses > b.attackLosses) {
+              return -0.1;
+            } else {
+              return 0;
+            }
+          }
+          if (a.winner === 'Defense') {
+            return -1;
+          }
+          return 1;
+        });
+
+        let cumulativeProbability = 0;
+        let reverseCumulativeProbability = 1;
+        versusValueArray.forEach(value => {
+          cumulativeProbability += value.probability;
+          value.cumulativeProbability = cumulativeProbability;
+          value.reverseCumulativeProbability = reverseCumulativeProbability;
+          reverseCumulativeProbability -= value.probability;
+        });
+
+        postVersusValues(versusValueArray);
+
+        return versusValueArray;
+      }
+
+      function postVersusValues(valueArray) {
+        const versusValuesTable = document.getElementById('versus-values');
+        versusValuesTable.innerHTML = '';
+
+        const tableHeader = document.createElement('thead');
+
+        const headerRow = document.createElement('tr');
+        const headerCell = document.createElement('th');
+        headerCell.colSpan = 5;
+        headerCell.appendChild(document.createTextNode('Versus'));
+        headerRow.appendChild(headerCell);
+        tableHeader.appendChild(headerRow);
+
+        const headerNoteRow = document.createElement('tr');
+        const headerNoteCell = document.createElement('td');
+        headerNoteCell.colSpan = 5;
+        headerNoteCell.appendChild(document.createTextNode('Half of remaining forces not included in attack losses if defense wins'));
+        headerNoteRow.appendChild(headerNoteCell);
+        tableHeader.appendChild(headerNoteRow);
+
+        const subheaderRow = document.createElement('tr');
+        const winnerHeaderCell = document.createElement('th');
+        winnerHeaderCell.appendChild(document.createTextNode('Winner'));
+        subheaderRow.appendChild(winnerHeaderCell);
+        const attackLossesHeaderCell = document.createElement('th');
+        attackLossesHeaderCell.appendChild(document.createTextNode('Attack Losses'));
+        subheaderRow.appendChild(attackLossesHeaderCell);
+        const probabilityHeaderCell = document.createElement('th');
+        probabilityHeaderCell.appendChild(document.createTextNode('Probability'));
+        subheaderRow.appendChild(probabilityHeaderCell);
+        const cumulativeProbabilityHeaderCell = document.createElement('th');
+        cumulativeProbabilityHeaderCell.appendChild(document.createTextNode('Cumulative'));
+        subheaderRow.appendChild(cumulativeProbabilityHeaderCell);
+        const reverseCumulativeProbabilityHeaderCell = document.createElement('th');
+        reverseCumulativeProbabilityHeaderCell.appendChild(document.createTextNode('Reverse'));
+        subheaderRow.appendChild(reverseCumulativeProbabilityHeaderCell);
+        tableHeader.appendChild(subheaderRow);
+
+        versusValuesTable.appendChild(tableHeader);
+
+        const tableBody = document.createElement('tbody');
+
+        valueArray.forEach(value => {
+          const valueRow = document.createElement('tr');
+          const winnerCell = document.createElement('td');
+          winnerCell.appendChild(document.createTextNode(value.winner));
+          valueRow.appendChild(winnerCell);
+          const attackLossesCell = document.createElement('td');
+          attackLossesCell.appendChild(document.createTextNode(value.attackLosses.toString()));
+          valueRow.appendChild(attackLossesCell);
+          const probabilityCell = document.createElement('td');
+          probabilityCell.appendChild(document.createTextNode((value.probability * 100).toFixed(2) +  '%'));
+          valueRow.appendChild(probabilityCell);
+          const cumulativeProbabilityCell = document.createElement('td');
+          cumulativeProbabilityCell.appendChild(document.createTextNode((value.cumulativeProbability * 100).toFixed(2) +  '%'));
+          valueRow.appendChild(cumulativeProbabilityCell);
+          const reverseCumulativeProbabilityCell = document.createElement('td');
+          reverseCumulativeProbabilityCell.appendChild(document.createTextNode((value.reverseCumulativeProbability * 100).toFixed(2) +  '%'));
+          valueRow.appendChild(reverseCumulativeProbabilityCell);
+          tableBody.appendChild(valueRow);
+        });
+
+        versusValuesTable.appendChild(tableBody);
+      }
+    </script>
+  </body>
+</html>
